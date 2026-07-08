@@ -1,22 +1,20 @@
-from cs336_basics.BPETraining import bpe_Training
-import time
+import os
 import pickle
+from cs336_basics.BPETraining import bpe_Training
 
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA = os.path.join(ROOT, "data", "owt_train.txt")
+TOK = os.path.join(ROOT, "tokenizers")
 
+vocab, merges = bpe_Training(DATA, 32_000, ["<|endoftext|>"], True)
 
-if __name__ == "__main__":
-    start = time.time()
-    vocab, merges = bpe_Training("/Users/ahmeds7f/Desktop/cs336/assignment1-basics/data/owt_train.txt",
-                                 32_000, ["<|endoftext|>"],True)
-    longest_token = max(vocab.values(), key = len)
-    longest_token_str = longest_token.decode("utf-8", errors="replace")
+longest = max(vocab.values(), key=len)
+print("longest token:", longest, longest.decode("utf-8", errors="replace"))
 
-    print(longest_token, longest_token_str)
+os.makedirs(TOK, exist_ok=True)
+with open(os.path.join(TOK, "owt_vocab.pkl"), "wb") as f:
+    pickle.dump(vocab, f)
+with open(os.path.join(TOK, "owt_merges.pkl"), "wb") as f:
+    pickle.dump(merges, f)
 
-
-    import os
-    os.makedirs("/Users/ahmeds7f/Desktop/cs336/assignment1-basics/tokenizers", exist_ok=True)
-    with open("/Users/ahmeds7f/Desktop/cs336/assignment1-basics/tokenizers/owt_vocab.pkl", "wb") as f:
-        pickle.dump(vocab, f)
-    with open("/Users/ahmeds7f/Desktop/cs336/assignment1-basics/tokenizers/owt_merges.pkl", "wb") as f:
-        pickle.dump(merges, f)
+print("done")
