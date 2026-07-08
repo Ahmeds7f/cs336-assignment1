@@ -6,6 +6,7 @@ import heapq
 from tqdm import tqdm
 from collections import Counter
 from cs336_basics.pretokenization_example import find_chunk_boundaries
+import pickle
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
 
 
@@ -176,26 +177,86 @@ def bpe_Training(input_path: str, vocab_size: int, special_tokens: list[str], sh
 
 class Tokenizer:
     def __init__(self, vocab, merges, special_tokens=None):
-        # Construct a tokenizer from a given
+        """# Construct a tokenizer from a given
         # vocabulary, list of merges, and (optionally) a list of special tokens. This function should accept
-        # the following parameters:
+        # the following parameters:"""
         self.vocab = vocab
+        self.bytes_to_token = {item: key for key, item in vocab.items()}
+        self.pair_rank = {pair: i for i, pair in enumerate(merges)}
         self.merges = merges
         self.special_tokens = special_tokens
 
+    @classmethod
     def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
-        # that constructs and returns a Tokenizer from a serialized vocabulary and list of merges (in the
+        """# that constructs and returns a Tokenizer from a serialized vocabulary and list of merges (in the
         # same format that your BPE training code output) and (optionally) a list of special tokens.
-        # This method should accept the following additional parameters:
+        # This method should accept the following additional parameters:"""
+        with open(vocab_filepath, "rb") as f:
+            vocab = pickle.load(f)
+        with open(merges_filepath, "rb") as f:
+            merges = pickle.load(f)
+
+        return cls(vocab, merges, special_tokens)
 
     def encode(self, text: str):
-        # list[int] Encode an input text into a sequence of token IDs.
+        """list[int] Encode an input text into a sequence of token IDs."""
+        if self.special_tokens is None:
+            chunks = [text]
+        else:
+            specials = sorted(self.special_tokens, key=len, reverse=True)
+            pattern = "(" + "|".join(re.escape(s) for s in specials) + ")"
+            chunks = re.split(pattern, text)
 
-    def encode_iterable(self, iterable: Iterable[str]):
-        # -> Iterator[int] Given an iterable of
-        # strings (e.g., a Python file handle), return a generator that lazily yields token IDs. This is
-        # required for memory-efficient tokenization of large files that we cannot directly load into
-        # memory.
+        final_state = []
+        for text in chunks:
+            if not text:
+                continue
+            elif self.special_tokens and text in self.special_tokens:
+                final_state.append(text.encode("utf-8"))
+            else:
+                for m in re.finditer(PAT, text):
+                    pretoken_bytes = tuple(bytes([b]) for b in m.group().encode("utf-8"))
+
+                    current_pairs = [(x,y) for x,y in zip(pretoken_bytes, pretoken_bytes[1:]) if (x,y) in self.merges]
+
+                    pair_rank = {pair: self.pair_rank[pair] for pair in current_pairs}
+
+                    pair_to_merge = min(pair_rank.keys(), key = lambda x: pair_rank[x], default= None)
+
+                    while pair_to_merge is not None:
+                        pretoken_bytes_updated = []
+
+                        i = 0
+                        while i< len(pretoken_bytes):
+                            if pretoken_bytes[i] == pair_to_merge[0] and i + 1 < len(pretoken_bytes) and pretoken_bytes[i + 1] == pair_to_merge[1]:
+                                pretoken_bytes_updated.append(pair_to_merge[0] + pair_to_merge[1])
+                                i += 2
+                            else:
+                                pretoken_bytes_updated.append(pretoken_bytes[i])
+                                i += 1
+
+                        pretoken_bytes = pretoken_bytes_updated
+
+                        current_pairs = [(x,y) for x,y in zip(pretoken_bytes, pretoken_bytes[1:]) if (x,y) in self.merges]
+
+                        pair_rank = {pair: self.pair_rank[pair] for pair in current_pairs}
+
+                        pair_to_merge = min(pair_rank.keys(), key = lambda x: pair_rank[x], default= None)
+
+                    final_state.extend(pretoken_bytes)
+
+        return [self.bytes_to_token[byte] for byte in final_state]
+
+
+    def encode_iterable(self, iterable):
+        """-> Iterator[int] Given an iterable of
+        strings (e.g., a Python file handle), return a generator that lazily yields token IDs. This is
+        required for memory-efficient tokenization of large files that we cannot directly load into
+        memory."""
+
+        for line in iterable:
+            yield from self.encode(line)
 
     def decode(self, ids: list[int]):
-        # str Decode a sequence of token IDs into text.
+        """# str Decode a sequence of token IDs into text."""
+        return b"".join([self.vocab[id] for id in ids]).decode("utf-8", errors="replace")
